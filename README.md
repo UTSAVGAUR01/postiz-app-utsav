@@ -41,7 +41,7 @@ Edit `.env` and replace both `change_this...` values, then run:
 
 ```bash
 docker compose config
-docker compose pull
+docker compose build --pull postiz
 docker compose up -d
 docker compose ps
 ```
@@ -103,7 +103,7 @@ docker compose up -d                 # start or update the stack
 docker compose ps                    # inspect service state
 docker compose logs -f postiz        # follow application logs
 docker compose restart postiz        # restart only Postiz
-docker compose pull && docker compose up -d  # update images safely
+docker compose build --pull postiz && docker compose up -d  # update Postiz safely
 ./scripts/smoke-test.sh              # regression check after a change
 ```
 
@@ -129,9 +129,9 @@ Only use the second command when you intentionally want a fresh database.
 
 ## Use your customized Postiz fork
 
-This test package defaults to the official Postiz image. After building your
-fork `https://github.com/UTSAVGAUR01/postiz-app-utsav`, tag it locally and set
-`POSTIZ_IMAGE` in `.env` to that tag. For example:
+This test package builds a local compatibility image over the official Postiz
+image. After building your fork `https://github.com/UTSAVGAUR01/postiz-app-utsav`,
+tag it locally and set `POSTIZ_BASE_IMAGE` in `.env` to that tag. For example:
 
 ```bash
 git clone https://github.com/UTSAVGAUR01/postiz-app-utsav.git
@@ -142,7 +142,7 @@ docker build -t utsav-postiz:latest .
 Then use this value in the test package's `.env`:
 
 ```env
-POSTIZ_IMAGE=utsav-postiz:latest
+POSTIZ_BASE_IMAGE=utsav-postiz:latest
 ```
 
 Restart only the application container:

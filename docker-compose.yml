@@ -64,7 +64,12 @@ services:
         condition: service_healthy
 
   postiz:
-    image: ${POSTIZ_IMAGE:-ghcr.io/gitroomhq/postiz-app:latest}
+    image: ${POSTIZ_IMAGE:-postiz-facebook-oauth-admin-ui-v25:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.postiz-facebook-oauth-admin-ui-v25
+      args:
+        POSTIZ_BASE_IMAGE: ${POSTIZ_BASE_IMAGE:-ghcr.io/gitroomhq/postiz-app:latest}
     container_name: postiz-test-app
     restart: unless-stopped
     ports:
@@ -147,4 +152,3 @@ volumes:
   postiz_uploads:
   postiz_config:
   admin_data:
-

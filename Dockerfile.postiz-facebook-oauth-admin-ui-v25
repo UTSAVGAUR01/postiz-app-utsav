@@ -1,0 +1,13 @@
+ARG POSTIZ_BASE_IMAGE=ghcr.io/gitroomhq/postiz-app:latest
+FROM ${POSTIZ_BASE_IMAGE}
+
+# Meta no longer accepts the v20.0 OAuth dialog for the Page permissions used
+# by Postiz. Keep the bundled Facebook and Instagram providers on Graph API v25.
+RUN set -eux; \
+    find /app -type f \( \
+      -name 'facebook.provider.ts' -o -name 'facebook.provider.js' -o \
+      -name 'instagram.provider.ts' -o -name 'instagram.provider.js' \
+    \) -exec sed -i 's/v20\.0/v25.0/g' {} +; \
+    ! grep -R -E 'facebook\.com/v20\.0|facebook\.com/v20\.0' /app/apps \
+      --include='facebook.provider.ts' --include='facebook.provider.js' \
+      --include='instagram.provider.ts' --include='instagram.provider.js'
