@@ -13,7 +13,7 @@ const TOKEN_ONLY_PROVIDERS = new Set(['openai'])
 export default function CredentialsPage() {
   const [list, setList] = useState([])
   const [providers, setProviders] = useState([])
-  const [form, setForm] = useState({ provider: '', client_id: '', client_secret: '' })
+  const [form, setForm] = useState({ provider: '', label: '', client_id: '', client_secret: '', is_active: true })
   const [editing, setEditing] = useState(null)
   const [msg, setMsg] = useState(null)
   const [error, setError] = useState(null)
@@ -31,33 +31,50 @@ export default function CredentialsPage() {
 
   function startEdit(row) {
     setEditing(row.id)
-    setForm({ provider: row.provider, client_id: row.client_id, client_secret: '' })
+    setForm({
+      id: row.id,
+      provider: row.provider,
+      label: row.label || '',
+      client_id: row.client_id,
+      client_secret: '',
+      is_active: !!row.is_active,
+    })
     setMsg(null); setError(null)
   }
 
   function startAdd() {
     setEditing('new')
-    setForm({ provider: providers[0] || '', client_id: '', client_secret: '' })
+    setForm({ provider: providers[0] || '', label: '', client_id: '', client_secret: '', is_active: true })
     setMsg(null); setError(null)
   }
 
-  function cancel() { setEditing(null); setForm({ provider: '', client_id: '', client_secret: '' }) }
+  function cancel() { setEditing(null); setForm({ provider: '', label: '', client_id: '', client_secret: '', is_active: true }) }
 
   async function save(e) {
     e.preventDefault()
     try {
       await credentials.save(form)
-      setMsg(`Saved ${PROVIDER_LABELS[form.provider] || form.provider}. Click "Apply & Restart" to activate.`)
+      setMsg(`Saved ${PROVIDER_LABELS[form.provider] || form.provider} credential. Click "Apply & Restart" to activate in Postiz.`)
       setEditing(null)
       load()
     } catch (e) { setError(e.message) }
   }
 
-  async function remove(provider) {
-    if (!confirm(`Remove ${provider} credentials?`)) return
-    await credentials.remove(provider)
-    setMsg(`Removed ${provider}.`)
+  async function remove(row) {
+    const title = row.label ? `${PROVIDER_LABELS[row.provider] || row.provider} (${row.label})` : (PROVIDER_LABELS[row.provider] || row.provider)
+    if (!confirm(`Remove ${title} credentials?`)) return
+    await credentials.remove(row.id)
+    setMsg(`Removed ${title}.`)
     load()
+  }
+
+  async function activate(row) {
+    try {
+      await credentials.activate(row.id)
+      const title = row.label ? `${PROVIDER_LABELS[row.provider] || row.provider} (${row.label})` : (PROVIDER_LABELS[row.provider] || row.provider)
+      setMsg(`Set active: ${title}`)
+      load()
+    } catch (e) { setError(e.message) }
   }
 
   async function applyAndRestart() {
@@ -84,7 +101,7 @@ export default function CredentialsPage() {
       </div>
 
       <div className="alert alert-info">
-        Credentials are stored in persistent admin storage. Click <strong>Apply & Restart</strong> to write them to the <code>.env</code> file and recreate the Postiz container.
+        You can save multiple credentials per provider. Mark one as <strong>active</strong> for each provider, then click <strong>Apply & Restart</strong> to write active values to <code>.env</code> and recreate Postiz.
       </div>
 
       {msg   && <div className="alert alert-success">{msg}</div>}
@@ -92,7 +109,7 @@ export default function CredentialsPage() {
 
       {editing && (
         <div className="card">
-          <div className="card-title">{editing === 'new' ? 'Add Provider' : `Edit ${editing}`}</div>
+          <div className="card-title">{editing === 'new' ? 'Add Provider Credential' : `Edit Credential #${editing}`}</div>
           <form onSubmit={save}>
             <div className="grid-2">
               <div>
@@ -107,6 +124,10 @@ export default function CredentialsPage() {
                   )}
                 </div>
                 <div className="form-group">
+                  <label>Label (optional)</label>
+                  <input className="form-control" value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Example: Client A, Backup App, Prod Key" />
+                </div>
+                <div className="form-group">
                   <label>{tokenOnly ? 'API Key' : 'Client ID / App ID'}</label>
                   <input className="form-control" value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder={tokenOnly ? 'Paste OpenAI API key' : 'Paste client_id / app_id'} required />
                 </div>
@@ -117,10 +138,21 @@ export default function CredentialsPage() {
                     {editing !== 'new' && <p className="text-muted text-sm" style={{ marginTop: 4 }}>Leave blank to keep existing secret.</p>}
                   </div>
                 )}
+                <div className="form-group">
+                  <label style={{ textTransform: 'none', letterSpacing: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!form.is_active}
+                      onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
+                      style={{ marginRight: 8 }}
+                    />
+                    Set as active for this provider
+                  </label>
+                </div>
               </div>
               <div className="card" style={{ background: '#0f172a' }}>
                 <div className="card-title">Where to get credentials</div>
-                {editing !== 'new' && HINTS[form.provider] ? (
+                {HINTS[form.provider] ? (
                   <div style={{ fontSize: 13, lineHeight: 1.7, color: '#94a3b8' }} dangerouslySetInnerHTML={{ __html: HINTS[form.provider] }} />
                 ) : (
                   <p className="text-muted text-sm">Select a provider to see setup instructions.</p>
@@ -140,7 +172,9 @@ export default function CredentialsPage() {
           <thead>
             <tr>
               <th>Provider</th>
+              <th>Label</th>
               <th>Client ID</th>
+              <th>Active</th>
               <th>Last Updated</th>
               <th>Actions</th>
             </tr>
@@ -149,18 +183,25 @@ export default function CredentialsPage() {
             {list.map(row => (
               <tr key={row.id}>
                 <td><strong>{PROVIDER_LABELS[row.provider] || row.provider}</strong></td>
+                <td className="text-muted">{row.label || '—'}</td>
                 <td><span className="mono">{row.client_id.slice(0, 12)}…</span></td>
+                <td>
+                  <span className={`badge ${row.is_active ? 'badge-healthy' : 'badge-starting'}`}>
+                    {row.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
                 <td className="text-muted">{new Date(row.updated_at).toLocaleString()}</td>
                 <td>
                   <div className="flex gap-2">
+                    {!row.is_active && <button className="btn btn-success btn-sm" onClick={() => activate(row)}>Set Active</button>}
                     <button className="btn btn-ghost btn-sm" onClick={() => startEdit(row)}>Edit</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => remove(row.provider)}>Remove</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => remove(row)}>Remove</button>
                   </div>
                 </td>
               </tr>
             ))}
             {list.length === 0 && (
-              <tr><td colSpan={4} className="text-muted" style={{ textAlign: 'center', padding: 28 }}>No credentials saved. Click "+ Add Provider" to start.</td></tr>
+              <tr><td colSpan={6} className="text-muted" style={{ textAlign: 'center', padding: 28 }}>No credentials saved. Click "+ Add Provider" to start.</td></tr>
             )}
           </tbody>
         </table>

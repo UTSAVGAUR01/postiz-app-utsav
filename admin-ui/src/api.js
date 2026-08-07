@@ -31,7 +31,8 @@ export const credentials = {
   list:      ()           => request('/api/credentials'),
   providers: ()           => request('/api/credentials/providers'),
   save:      (body)       => request('/api/credentials', { method: 'POST', body: JSON.stringify(body) }),
-  remove:    (provider)   => request(`/api/credentials/${provider}`, { method: 'DELETE' }),
+  remove:    (id)         => request(`/api/credentials/${id}`, { method: 'DELETE' }),
+  activate:  (id)         => request(`/api/credentials/${id}/activate`, { method: 'POST' }),
   apply:     ()           => request('/api/credentials/apply', { method: 'POST' }),
 };
 

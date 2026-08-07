@@ -20,42 +20,113 @@ const ENV_MAP = {
   openai:    { token: 'OPENAI_API_KEY' },
 };
 
+function normalizeRows(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(r => r && r.provider)
+    .map(r => ({
+      id: r.id || Date.now() + Math.floor(Math.random() * 10000),
+      provider: String(r.provider).toLowerCase(),
+      label: String(r.label || '').trim(),
+      client_id: String(r.client_id || ''),
+      client_secret: String(r.client_secret || ''),
+      is_active: !!r.is_active,
+      updated_at: r.updated_at || new Date().toISOString(),
+    }));
+}
+
+function withoutSecrets(rows) {
+  return rows.map(({ client_secret, ...rest }) => rest);
+}
+
+function chooseActive(rows, provider) {
+  const candidates = rows.filter(r => r.provider === provider);
+  if (candidates.length === 0) return null;
+  const active = candidates.find(r => r.is_active);
+  if (active) return active;
+  return candidates
+    .slice()
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
+}
+
+function deactivateProviderRows(rows, provider, keepId) {
+  for (const r of rows) {
+    if (r.provider === provider) r.is_active = r.id === keepId;
+  }
+}
+
 router.get('/providers', (_req, res) => res.json(Object.keys(ENV_MAP)));
 
 router.get('/', (_req, res) => {
-  const creds = readAll().map(({ client_secret, ...rest }) => rest);
+  const creds = withoutSecrets(normalizeRows(readAll()));
   res.json(creds);
 });
 
 router.post('/', (req, res) => {
-  const { provider, client_id, client_secret } = req.body;
+  const { id, provider, label, client_id, client_secret, is_active } = req.body;
   const key = provider?.toLowerCase();
   const map = ENV_MAP[key];
   if (!key || !map || !client_id)
     return res.status(400).json({ error: 'a supported provider and client_id are required' });
 
-  const creds = readAll();
-  const idx = creds.findIndex(c => c.provider === key);
+  const creds = normalizeRows(readAll());
+  const idx = id != null ? creds.findIndex(c => String(c.id) === String(id)) : -1;
   const isTokenOnly = !!map.token;
   const secret = isTokenOnly ? '' : (client_secret || (idx >= 0 ? creds[idx].client_secret : ''));
   if (!isTokenOnly && !secret)
     return res.status(400).json({ error: 'client_secret is required when adding a provider' });
 
   const entry = {
-    id: idx >= 0 ? creds[idx].id : Date.now(),
+    id: idx >= 0 ? creds[idx].id : Date.now() + Math.floor(Math.random() * 1000),
     provider: key,
+    label: String(label || '').trim(),
     client_id,
     client_secret: secret,
+    is_active: !!is_active,
     updated_at: new Date().toISOString(),
   };
-  if (idx >= 0) creds[idx] = entry; else creds.push(entry);
+
+  if (idx >= 0) {
+    creds[idx] = entry;
+  } else {
+    const hasActiveInProvider = creds.some(c => c.provider === key && c.is_active);
+    if (!hasActiveInProvider) entry.is_active = true;
+    creds.push(entry);
+  }
+
+  if (entry.is_active) deactivateProviderRows(creds, key, entry.id);
+
   writeAll(creds);
-  const { client_secret: _s, ...safe } = entry;
+  const [safe] = withoutSecrets([entry]);
   res.json(safe);
 });
 
-router.delete('/:provider', (req, res) => {
-  writeAll(readAll().filter(c => c.provider !== req.params.provider));
+router.post('/:id/activate', (req, res) => {
+  const creds = normalizeRows(readAll());
+  const idx = creds.findIndex(c => String(c.id) === String(req.params.id));
+  if (idx < 0) return res.status(404).json({ error: 'credential not found' });
+
+  const target = creds[idx];
+  deactivateProviderRows(creds, target.provider, target.id);
+  target.updated_at = new Date().toISOString();
+  writeAll(creds);
+  res.json({ ok: true, id: target.id, provider: target.provider });
+});
+
+router.delete('/:id', (req, res) => {
+  const creds = normalizeRows(readAll());
+  const idx = creds.findIndex(c => String(c.id) === String(req.params.id));
+  if (idx < 0) return res.status(404).json({ error: 'credential not found' });
+
+  const removed = creds[idx];
+  creds.splice(idx, 1);
+
+  if (removed.is_active) {
+    const replacement = chooseActive(creds, removed.provider);
+    if (replacement) replacement.is_active = true;
+  }
+
+  writeAll(creds);
   res.json({ ok: true });
 });
 
@@ -72,8 +143,11 @@ router.post('/apply', (req, res) => {
     return key && !managedVars.has(key);
   });
 
-  const rows = readAll();
-  for (const row of rows) {
+  const rows = normalizeRows(readAll());
+  const providers = [...new Set(rows.map(r => r.provider))];
+  const selectedRows = providers.map(p => chooseActive(rows, p)).filter(Boolean);
+
+  for (const row of selectedRows) {
     const map = ENV_MAP[row.provider];
     if (map) {
       if (map.token) {
@@ -86,7 +160,16 @@ router.post('/apply', (req, res) => {
   }
 
   fs.writeFileSync(envPath, kept.filter(Boolean).join('\n') + '\n');
-  res.json({ ok: true, providers: rows.map(r => r.provider) });
+  res.json({
+    ok: true,
+    providers: selectedRows.map(r => r.provider),
+    selected: selectedRows.map(r => ({
+      id: r.id,
+      provider: r.provider,
+      label: r.label || '',
+      is_active: !!r.is_active,
+    })),
+  });
 });
 
 module.exports = router;
