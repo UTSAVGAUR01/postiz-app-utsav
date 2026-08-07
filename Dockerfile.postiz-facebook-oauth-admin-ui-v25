@@ -11,3 +11,202 @@ RUN set -eux; \
     ! grep -R -E 'facebook\.com/v20\.0|facebook\.com/v20\.0' /app/apps \
       --include='facebook.provider.ts' --include='facebook.provider.js' \
       --include='instagram.provider.ts' --include='instagram.provider.js'
+
+# Inject a lightweight AI assistant into the Launches (Create Post) page.
+RUN set -eux; \
+    cat > /app/apps/frontend/public/ymi-postiz-createpost-ai.js <<'EOF'
+(function () {
+  if (window.__ymiPostizAiLoaded) return;
+  window.__ymiPostizAiLoaded = true;
+
+  function setNativeValue(el, value) {
+    const proto = Object.getPrototypeOf(el);
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && desc.set) desc.set.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function findComposer() {
+    const areas = Array.from(document.querySelectorAll('textarea'));
+    return areas.find((t) => {
+      const ph = String(t.getAttribute('placeholder') || '').toLowerCase();
+      return ph.includes('write something') || ph.includes('write');
+    });
+  }
+
+  function makePanel(target) {
+    if (document.querySelector('[data-ymi-postiz-ai]')) return;
+
+    const wrap = document.createElement('div');
+    wrap.setAttribute('data-ymi-postiz-ai', 'true');
+    wrap.style.cssText = [
+      'margin:12px 0',
+      'padding:12px',
+      'border:1px solid #3d3d46',
+      'border-radius:10px',
+      'background:#17171c',
+      'color:#f3f4f6',
+      'font-family:Inter,Segoe UI,sans-serif',
+      'font-size:13px'
+    ].join(';');
+
+    wrap.innerHTML = [
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">',
+      '  <strong style="font-size:13px;">AI Create Post Assistant</strong>',
+      '  <span style="font-size:11px;opacity:.8;">YehMeraIndia style: hook + caption + hashtags + image prompt</span>',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-topic placeholder="Post topic (required)" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-tone placeholder="Tone" value="bold and energetic" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-goal placeholder="Goal" value="engagement and shares" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-audience placeholder="Audience" value="Indian young adults" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-language placeholder="Language" value="Hinglish" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '</div>',
+      '<div style="display:flex;align-items:center;gap:8px;">',
+      '  <button type="button" data-ymi-generate style="background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;">Generate AI Post</button>',
+      '  <button type="button" data-ymi-paste style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Paste to Composer</button>',
+      '  <span data-ymi-status style="font-size:12px;opacity:.85"></span>',
+      '</div>'
+    ].join('');
+
+    const holder = target.closest('div') || target.parentElement;
+    if (holder && holder.parentElement) {
+      holder.parentElement.insertBefore(wrap, holder);
+    } else {
+      target.parentElement.insertBefore(wrap, target);
+    }
+
+    const topic = wrap.querySelector('[data-ymi-topic]');
+    const tone = wrap.querySelector('[data-ymi-tone]');
+    const goal = wrap.querySelector('[data-ymi-goal]');
+    const audience = wrap.querySelector('[data-ymi-audience]');
+    const language = wrap.querySelector('[data-ymi-language]');
+    const generate = wrap.querySelector('[data-ymi-generate]');
+    const paste = wrap.querySelector('[data-ymi-paste]');
+    const status = wrap.querySelector('[data-ymi-status]');
+
+    let generatedText = '';
+
+    generate.addEventListener('click', async function () {
+      const topicValue = String(topic.value || '').trim();
+      if (!topicValue) {
+        status.textContent = 'Topic is required.';
+        return;
+      }
+
+      generate.disabled = true;
+      paste.style.display = 'none';
+      status.textContent = 'Generating...';
+
+      try {
+        const response = await fetch('http://localhost:3001/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: topicValue,
+            platform: 'instagram',
+            tone: String(tone.value || '').trim() || 'bold and energetic',
+            goal: String(goal.value || '').trim() || 'engagement and shares',
+            audience: String(audience.value || '').trim() || 'Indian young adults',
+            language: String(language.value || '').trim() || 'Hinglish'
+          })
+        });
+
+        const data = await response.json().catch(function () { return {}; });
+        if (!response.ok) throw new Error(data.error || 'AI request failed');
+
+        const hashtags = Array.isArray(data.hashtags) ? data.hashtags.join(' ') : '';
+        const imagePrompt = Array.isArray(data.imagePrompts) && data.imagePrompts.length ? data.imagePrompts[0] : '';
+        generatedText = [
+          data.hook || '',
+          data.caption || '',
+          hashtags,
+          data.cta || '',
+          imagePrompt ? ('\nImage idea: ' + imagePrompt) : ''
+        ].filter(Boolean).join('\n\n').trim();
+
+        if (!generatedText) throw new Error('AI returned empty text');
+        status.textContent = 'Generated. Click Paste to Composer.';
+        paste.style.display = 'inline-block';
+      } catch (err) {
+        status.textContent = (err && err.message) ? err.message : 'Generation failed';
+      } finally {
+        generate.disabled = false;
+      }
+    });
+
+    paste.addEventListener('click', function () {
+      if (!generatedText) return;
+      setNativeValue(target, generatedText);
+      target.focus();
+      status.textContent = 'Inserted into composer.';
+    });
+  }
+
+  function mount() {
+    const composer = findComposer();
+    if (composer) makePanel(composer);
+  }
+
+  const observer = new MutationObserver(function () { mount(); });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount, { once: true });
+  } else {
+    mount();
+  }
+})();
+EOF
+
+RUN set -eux; \
+    cat > '/app/apps/frontend/src/app/(app)/(site)/launches/page.tsx' <<'EOF'
+export const dynamic = 'force-dynamic';
+import { LaunchesComponent } from '@gitroom/frontend/components/launches/launches.component';
+import { Metadata } from 'next';
+import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
+import { YmiCreatePostAiLoader } from '@gitroom/frontend/components/launches/ymi.createpost.ai.loader';
+
+export const metadata: Metadata = {
+  title: `${isGeneralServerSide() ? 'Postiz Calendar' : 'Gitroom Launches'}`,
+  description: '',
+};
+
+export default async function Index() {
+  return (
+    <>
+      <YmiCreatePostAiLoader />
+      <LaunchesComponent />
+    </>
+  );
+}
+EOF
+
+RUN set -eux; \
+    cat > '/app/apps/frontend/src/components/launches/ymi.createpost.ai.loader.tsx' <<'EOF'
+'use client';
+
+import { useEffect } from 'react';
+
+export function YmiCreatePostAiLoader(): null {
+  useEffect(() => {
+    const existing = document.querySelector('script[data-ymi-createpost-ai="1"]');
+    if (existing) return;
+    const script = document.createElement('script');
+    script.src = '/ymi-postiz-createpost-ai.js';
+    script.defer = true;
+    script.setAttribute('data-ymi-createpost-ai', '1');
+    document.head.appendChild(script);
+  }, []);
+
+  return null;
+}
+EOF
+
+# Rebuild frontend so Launches page picks the injected helper.
+RUN set -eux; \
+    cd /app/apps/frontend; \
+    pnpm run build
