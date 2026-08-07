@@ -8,6 +8,7 @@ const path = require('path');
 const credentialsRouter = require('./routes/credentials');
 const healthRouter = require('./routes/health');
 const dockerRouter = require('./routes/docker-ops');
+const aiContentRouter = require('./routes/ai-content');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,6 +32,7 @@ app.use(cookieParser());
 app.use('/api/credentials', express.json(), credentialsRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/docker', express.json(), dockerRouter);
+app.use('/api/ai', express.json(), aiContentRouter);
 
 // Proxy /postiz/* → Postiz container (strip the /postiz prefix)
 app.use('/postiz', (req, res) => {

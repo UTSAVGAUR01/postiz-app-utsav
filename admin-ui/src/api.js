@@ -40,6 +40,10 @@ export const docker = {
   postizLogs:    () => fetch('/api/docker/postiz-logs', { headers: { auth: getAuth() } }).then(r => r.text()),
 };
 
+export const aiContent = {
+  generate: (body) => request('/api/ai/generate', { method: 'POST', body: JSON.stringify(body) }),
+};
+
 // ── Postiz API (proxied) ───────────────────────────────────
 
 async function postiz(path, options = {}) {
