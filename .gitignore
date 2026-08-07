@@ -1,2 +1,4 @@
 .env
 test-reports/
+admin-ui/node_modules/
+admin-ui/dist/
