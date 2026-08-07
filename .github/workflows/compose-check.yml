@@ -1,0 +1,34 @@
+name: Docker Compose validation
+
+on:
+  push:
+    paths:
+      - "docker-compose.yml"
+      - ".env.example"
+      - "scripts/**"
+      - ".github/workflows/compose-check.yml"
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - ".env.example"
+      - "scripts/**"
+      - ".github/workflows/compose-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create test environment
+        run: cp .env.example .env
+      - name: Validate Compose model
+        run: docker compose config --quiet
+      - name: Check shell scripts
+        run: |
+          sh -n start.sh
+          sh -n scripts/smoke-test.sh
+          sh -n scripts/diagnostics.sh
