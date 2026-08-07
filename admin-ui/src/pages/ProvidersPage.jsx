@@ -9,7 +9,16 @@ export default function ProvidersPage() {
 
   async function load() {
     setLoading(true)
-    try { setIntegrations(await postizIntegrations.list()) } catch (e) { setError(e.message) } finally { setLoading(false) }
+    try {
+      const data = await postizIntegrations.list()
+      const rows = Array.isArray(data) ? data : data?.items || data?.integrations || []
+      setIntegrations(rows)
+    } catch (e) {
+      setError(e.message)
+      setIntegrations([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
