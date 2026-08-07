@@ -5,7 +5,10 @@ const PROVIDER_LABELS = {
   linkedin: 'LinkedIn', facebook: 'Facebook / Instagram', github: 'GitHub',
   google: 'Google / YouTube', x: 'X (Twitter)', tiktok: 'TikTok',
   reddit: 'Reddit', discord: 'Discord', pinterest: 'Pinterest', tumblr: 'Tumblr',
+  openai: 'OpenAI (AI Writer)',
 }
+
+const TOKEN_ONLY_PROVIDERS = new Set(['openai'])
 
 export default function CredentialsPage() {
   const [list, setList] = useState([])
@@ -16,6 +19,8 @@ export default function CredentialsPage() {
   const [error, setError] = useState(null)
   const [applying, setApplying] = useState(false)
   const [restarting, setRestarting] = useState(false)
+
+  const tokenOnly = TOKEN_ONLY_PROVIDERS.has(form.provider)
 
   async function load() {
     const [creds, provs] = await Promise.all([credentials.list(), credentials.providers()])
@@ -102,14 +107,16 @@ export default function CredentialsPage() {
                   )}
                 </div>
                 <div className="form-group">
-                  <label>Client ID / App ID</label>
-                  <input className="form-control" value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder="Paste client_id / app_id" required />
+                  <label>{tokenOnly ? 'API Key' : 'Client ID / App ID'}</label>
+                  <input className="form-control" value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} placeholder={tokenOnly ? 'Paste OpenAI API key' : 'Paste client_id / app_id'} required />
                 </div>
-                <div className="form-group">
-                  <label>Client Secret / App Secret</label>
-                  <input className="form-control" type="password" value={form.client_secret} onChange={e => setForm(f => ({ ...f, client_secret: e.target.value }))} placeholder="Paste secret" required={editing === 'new'} />
-                  {editing !== 'new' && <p className="text-muted text-sm" style={{ marginTop: 4 }}>Leave blank to keep existing secret.</p>}
-                </div>
+                {!tokenOnly && (
+                  <div className="form-group">
+                    <label>Client Secret / App Secret</label>
+                    <input className="form-control" type="password" value={form.client_secret} onChange={e => setForm(f => ({ ...f, client_secret: e.target.value }))} placeholder="Paste secret" required={editing === 'new'} />
+                    {editing !== 'new' && <p className="text-muted text-sm" style={{ marginTop: 4 }}>Leave blank to keep existing secret.</p>}
+                  </div>
+                )}
               </div>
               <div className="card" style={{ background: '#0f172a' }}>
                 <div className="card-title">Where to get credentials</div>
@@ -172,4 +179,5 @@ const HINTS = {
   discord:   '<b>1.</b> <a href="https://discord.com/developers/applications" target="_blank" style="color:#3b82f6">Discord Developer Portal</a><br><b>2.</b> New Application → OAuth2<br><b>3.</b> Redirect: <code>http://localhost:4007/integrations/social/discord</code>',
   tiktok:    '<b>1.</b> <a href="https://developers.tiktok.com/" target="_blank" style="color:#3b82f6">TikTok Developer</a> → Create App<br><b>2.</b> Redirect: <code>http://localhost:4007/integrations/social/tiktok</code>',
   pinterest: '<b>1.</b> <a href="https://developers.pinterest.com/apps/" target="_blank" style="color:#3b82f6">Pinterest Developer</a> → Create App<br><b>2.</b> Redirect: <code>http://localhost:4007/integrations/social/pinterest</code>',
+  openai:    '<b>1.</b> Open <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#3b82f6">OpenAI API Keys</a><br><b>2.</b> Create a new secret key<br><b>3.</b> Save it here, then click <strong>Apply & Restart Postiz</strong><br><b>4.</b> Postiz AI writer in Create Post will use this key',
 }

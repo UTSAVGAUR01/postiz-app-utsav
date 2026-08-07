@@ -110,6 +110,7 @@ services:
       PINTEREST_CLIENT_SECRET: ${PINTEREST_CLIENT_SECRET:-}
       TUMBLR_CLIENT_ID: ${TUMBLR_CLIENT_ID:-}
       TUMBLR_CLIENT_SECRET: ${TUMBLR_CLIENT_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - postiz_uploads:/uploads
       - postiz_config:/config
@@ -138,6 +139,7 @@ services:
       POSTIZ_CONTAINER_NAME: postiz-test-app
       HOST_ENV_FILE: /app/.env.stack
       DATA_DIR: /app/data
+      AI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env.stack

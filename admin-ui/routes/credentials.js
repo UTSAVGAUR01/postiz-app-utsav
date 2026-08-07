@@ -17,6 +17,7 @@ const ENV_MAP = {
   discord:   { id: 'DISCORD_CLIENT_ID',   secret: 'DISCORD_CLIENT_SECRET' },
   pinterest: { id: 'PINTEREST_CLIENT_ID', secret: 'PINTEREST_CLIENT_SECRET' },
   tumblr:    { id: 'TUMBLR_CLIENT_ID',    secret: 'TUMBLR_CLIENT_SECRET' },
+  openai:    { token: 'OPENAI_API_KEY' },
 };
 
 router.get('/providers', (_req, res) => res.json(Object.keys(ENV_MAP)));
@@ -29,13 +30,15 @@ router.get('/', (_req, res) => {
 router.post('/', (req, res) => {
   const { provider, client_id, client_secret } = req.body;
   const key = provider?.toLowerCase();
-  if (!key || !ENV_MAP[key] || !client_id)
+  const map = ENV_MAP[key];
+  if (!key || !map || !client_id)
     return res.status(400).json({ error: 'a supported provider and client_id are required' });
 
   const creds = readAll();
   const idx = creds.findIndex(c => c.provider === key);
-  const secret = client_secret || (idx >= 0 ? creds[idx].client_secret : '');
-  if (!secret)
+  const isTokenOnly = !!map.token;
+  const secret = isTokenOnly ? '' : (client_secret || (idx >= 0 ? creds[idx].client_secret : ''));
+  if (!isTokenOnly && !secret)
     return res.status(400).json({ error: 'client_secret is required when adding a provider' });
 
   const entry = {
@@ -61,7 +64,9 @@ router.post('/apply', (req, res) => {
   let content = '';
   try { content = fs.readFileSync(envPath, 'utf8'); } catch {}
 
-  const managedVars = new Set(Object.values(ENV_MAP).flatMap(m => [m.id, m.secret]));
+  const managedVars = new Set(
+    Object.values(ENV_MAP).flatMap(m => [m.id, m.secret, m.token]).filter(Boolean)
+  );
   const kept = content.split('\n').filter(line => {
     const key = line.split('=')[0].trim();
     return key && !managedVars.has(key);
@@ -71,8 +76,12 @@ router.post('/apply', (req, res) => {
   for (const row of rows) {
     const map = ENV_MAP[row.provider];
     if (map) {
-      kept.push(`${map.id}=${row.client_id}`);
-      kept.push(`${map.secret}=${row.client_secret}`);
+      if (map.token) {
+        kept.push(`${map.token}=${row.client_id}`);
+      } else {
+        kept.push(`${map.id}=${row.client_id}`);
+        kept.push(`${map.secret}=${row.client_secret}`);
+      }
     }
   }
 
