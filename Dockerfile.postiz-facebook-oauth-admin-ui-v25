@@ -69,6 +69,253 @@ RUN set -eux; \
     return richEditor || null;
   }
 
+  function findButtonByText(text) {
+    const target = String(text || '').trim().toLowerCase();
+    if (!target) return null;
+    const buttons = Array.from(document.querySelectorAll('button'));
+    return buttons.find((btn) => String(btn.textContent || '').trim().toLowerCase().includes(target)) || null;
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function normalizeTagsInput(value) {
+    return String(value || '')
+      .split(/[\n,\s]+/)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .map((tag) => (tag.startsWith('#') ? tag : ('#' + tag)));
+  }
+
+  function normalizeListInput(value) {
+    return String(value || '')
+      .split(/[\n,|]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function clampImageCount(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(5, Math.max(1, Math.floor(n)));
+  }
+
+  function pickFromList(list, index) {
+    if (!Array.isArray(list) || list.length === 0) return '';
+    return String(list[index % list.length] || '').trim();
+  }
+
+  function buildImagePromptVariants(basePrompt, count, directives) {
+    const total = clampImageCount(count);
+    const moods = normalizeListInput(directives && directives.moods);
+    const objects = normalizeListInput(directives && directives.objects);
+    const style = String((directives && directives.style) || '').trim();
+    const lighting = String((directives && directives.lighting) || '').trim();
+    const prompts = [];
+    for (let i = 0; i < total; i += 1) {
+      if (i === 0) {
+        prompts.push(basePrompt);
+      } else {
+        const mood = pickFromList(moods, i);
+        const objectFocus = pickFromList(objects, i);
+        const guidance = [
+          'Variation ' + (i + 1) + ': keep the same brand identity and typography, but create a clearly different concept from previous images.',
+          mood ? ('Mood focus: ' + mood + '.') : 'Mood focus: use a clearly different emotional tone than prior variation.',
+          objectFocus ? ('Primary object focus: ' + objectFocus + '.') : 'Primary object focus: use a different hero product/object than previous variation.',
+          style ? ('Visual style direction: ' + style + '.') : '',
+          lighting ? ('Lighting direction: ' + lighting + '.') : '',
+          'Also change camera angle, composition, and depth while preserving photorealism and premium quality.'
+        ].filter(Boolean).join(' ');
+        prompts.push(basePrompt + '\n\n' + guidance);
+      }
+    }
+    return prompts;
+  }
+
+  const DEFAULT_LUXURY_IMAGE_TEMPLATE = [
+    'Create a premium cinematic social media cover image for **{{brand}}**, a luxury furniture and electronics wholesaler and manufacturer of handmade customised furniture.',
+    '',
+    '**Visual concept:** A breathtaking, sophisticated contemporary living space designed around one extraordinary piece of handcrafted customised furniture. The hero furniture should dominate the composition - sculptural, elegant, meticulously crafted, with rich natural wood, refined upholstery and exquisite detailing. Subtle premium electronics should naturally integrate into the environment without distracting from the furniture.',
+    '',
+    '**Mood:** aspirational, luxurious, timeless, sophisticated and emotionally captivating.',
+    '',
+    '**Style:** ultra-premium luxury commercial photography, photorealistic, cinematic lighting, architectural digest aesthetic, high-end furniture campaign, realistic material textures, elegant shadows, subtle warm ambient lighting, immaculate composition, sophisticated depth of field.',
+    '',
+    '**Composition:** vertical 4:5 social media format. Hero furniture positioned prominently in the lower/middle frame, dramatic architectural space behind it, generous negative space in the upper portion for typography. Camera at a premium interior-design editorial angle, slightly low perspective, 35mm cinematic lens.',
+    '',
+    '**Color palette:** warm wood, ivory, champagne, soft beige, subtle charcoal accents. No excessive colors.',
+    '',
+    '**Brand feeling:** "Not just furniture. Something unmistakably yours."',
+    '',
+    'Add elegant, minimal typography:',
+    '**{{brand}}**',
+    '*{{tagline}}*',
+    '',
+    'Keep the typography extremely clean and premium. No people, no children, no dialogue, no clutter, no price tags, no promotional stickers, no discount badges, no cheap retail aesthetic, no excessive text, no distorted furniture, no unrealistic materials.',
+    '',
+    'The final image should look like a **Rs10-crore luxury interior campaign**, not a conventional furniture advertisement.',
+    '',
+    'Topic context: {{topic}}',
+    'Tone: {{tone}}',
+    'Goal: {{goal}}',
+    'Audience: {{audience}}',
+    'Language: {{language}}',
+    'Preferred objects: {{objects}}',
+    'Mood options: {{moods}}',
+    'Visual style preference: {{style}}',
+    'Lighting preference: {{lighting}}'
+  ].join('\n');
+
+  const STRATEGY_PRESETS = {
+    product_showcase: {
+      label: 'Product Showcase',
+      moods: 'luxury, polished, premium, confident, aspirational',
+      objects: 'hero sofa, handcrafted dining set, statement console, designer recliner, signature TV wall',
+      style: 'high-end product campaign photography',
+      lighting: 'studio-soft key light with premium contrast',
+    },
+    room_story: {
+      label: 'Room Story',
+      moods: 'cozy, lived-in, welcoming, elegant, warm',
+      objects: 'family lounge sofa, coffee table styling, reading nook chair, media wall, handcrafted sideboard',
+      style: 'editorial interior storytelling photography',
+      lighting: 'natural daylight mixed with warm ambient practical lights',
+    },
+    festive_campaign: {
+      label: 'Festive Campaign',
+      moods: 'festive, joyful, celebratory, rich, vibrant',
+      objects: 'festive living room setup, embellished sofa set, dining spread setup, decor console, statement lighting corner',
+      style: 'luxury festive brand campaign photography',
+      lighting: 'golden festive highlights with cinematic glow',
+    },
+    minimal_editorial: {
+      label: 'Minimal Editorial',
+      moods: 'minimal, calm, refined, modern, serene',
+      objects: 'minimal sculptural sofa, clean dining silhouette, elegant accent chair, streamlined console, architectural shelf unit',
+      style: 'minimalist architectural editorial photography',
+      lighting: 'soft directional daylight with subtle shadows',
+    },
+    luxury_cinematic: {
+      label: 'Luxury Cinematic',
+      moods: 'dramatic, royal, luxurious, timeless, majestic',
+      objects: 'grand hero sofa, bespoke dining island setup, statement lounge chair, premium entertainment wall, handcrafted focal furniture',
+      style: 'cinematic luxury interior commercial photography',
+      lighting: 'dramatic cinematic key light with warm rim accents',
+    },
+  };
+
+  function fillTemplate(template, values) {
+    let out = String(template || '');
+    Object.keys(values).forEach(function (key) {
+      const value = String(values[key] || '');
+      out = out.replace(new RegExp('{{\\s*' + key + '\\s*}}', 'gi'), value);
+    });
+    return out;
+  }
+
+  function buildPostText(result, manualTagsValue) {
+    const tags = normalizeTagsInput(manualTagsValue);
+    return [
+      result.hook || '',
+      result.caption || '',
+      tags.join(' '),
+      result.cta || ''
+    ].filter(Boolean).join('\n\n').trim();
+  }
+
+  function renderGeneratedPreview(previewEl, generated) {
+    if (!previewEl) return;
+    if (!generated) {
+      previewEl.innerHTML = '<div style="opacity:.8;">No preview yet. Generate AI post to see a formatted preview.</div>';
+      return;
+    }
+
+    const hook = escapeHtml(generated.hook || '');
+    const caption = escapeHtml(generated.caption || '');
+    const cta = escapeHtml(generated.cta || '');
+    const tags = normalizeTagsInput(generated.tagsText || '').map(escapeHtml).join(' ');
+    const images = Array.isArray(generated.generatedImages) && generated.generatedImages.length
+      ? generated.generatedImages
+      : (generated.generatedImage ? [generated.generatedImage] : []);
+    const imagePrompt = escapeHtml((generated.imagePrompts && generated.imagePrompts[0]) || generated.imagePromptUsed || '');
+    const imageHtml = images.length
+      ? ('<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+         images.map(function (src, idx) {
+           return '<img alt="AI generated ' + (idx + 1) + '" src="' + escapeHtml(src) + '" style="width:100%;border-radius:8px;border:1px solid #2f3440;" />';
+         }).join('') + '</div>')
+      : '<div style="margin-top:8px;opacity:.8;">No image returned. Prompt: ' + imagePrompt + '</div>';
+
+    previewEl.innerHTML = [
+      '<div style="background:#0f131b;border:1px solid #2f3440;border-radius:8px;padding:10px;">',
+      '  <div style="font-weight:700;margin-bottom:6px;">' + hook + '</div>',
+      '  <div style="white-space:pre-wrap;line-height:1.45;">' + caption + '</div>',
+      tags ? ('  <div style="margin-top:8px;color:#93c5fd;">' + tags + '</div>') : '',
+      cta ? ('  <div style="margin-top:8px;font-weight:600;">' + cta + '</div>') : '',
+      imageHtml,
+      '</div>'
+    ].join('');
+  }
+
+  function openAiImageToolAndFillPrompt(target, prompt, statusEl) {
+    if (!target || !prompt) {
+      if (statusEl) statusEl.textContent = 'Image prompt unavailable.';
+      return;
+    }
+
+    const targetRect = target.getBoundingClientRect();
+    const iconButtons = Array.from(document.querySelectorAll('button')).filter(function (btn) {
+      const txt = String(btn.textContent || '').trim().toLowerCase();
+      const aria = String(btn.getAttribute('aria-label') || '').toLowerCase();
+      const title = String(btn.getAttribute('title') || '').toLowerCase();
+      const cls = String(btn.className || '').toLowerCase();
+      const rect = btn.getBoundingClientRect();
+      const iconLike = !txt || txt.length < 3;
+      const nearComposer = rect.top <= targetRect.bottom && rect.top >= (targetRect.top - 160) && rect.left <= (targetRect.left + 120);
+      const hinted = aria.includes('image') || title.includes('image') || cls.includes('image');
+      return (nearComposer && iconLike) || hinted;
+    });
+
+    const aiImageButton = iconButtons[0] || null;
+    if (!aiImageButton) {
+      if (statusEl) statusEl.textContent = 'AI Image icon not found. Copy prompt and use icon manually.';
+      return;
+    }
+
+    aiImageButton.click();
+
+    const tryInject = function (attempt) {
+      const inputs = Array.from(document.querySelectorAll('textarea,input,[contenteditable="true"]')).filter(function (el) {
+        const ph = String(el.getAttribute('placeholder') || '').toLowerCase();
+        const aria = String(el.getAttribute('aria-label') || '').toLowerCase();
+        const visible = el.offsetParent !== null;
+        return visible && (ph.includes('prompt') || ph.includes('describe') || aria.includes('prompt'));
+      });
+
+      const promptField = inputs[0] || null;
+      if (!promptField) {
+        if (attempt < 6) {
+          setTimeout(function () { tryInject(attempt + 1); }, 300);
+          return;
+        }
+        if (statusEl) statusEl.textContent = 'Opened AI Image tool. Paste prompt manually if field is not auto-detected.';
+        return;
+      }
+
+      setNativeValue(promptField, prompt);
+      const generateBtn = findButtonByText('generate') || findButtonByText('create');
+      if (generateBtn) generateBtn.click();
+      if (statusEl) statusEl.textContent = 'Prompt sent to AI Image icon and generation triggered.';
+    };
+
+    setTimeout(function () { tryInject(0); }, 250);
+  }
+
   function makePanel(target) {
     if (document.querySelector('[data-ymi-postiz-ai]')) return;
 
@@ -88,7 +335,7 @@ RUN set -eux; \
     wrap.innerHTML = [
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">',
       '  <strong style="font-size:13px;">AI Create Post Assistant</strong>',
-      '  <span style="font-size:11px;opacity:.8;">YehMeraIndia style: hook + caption + hashtags + image prompt</span>',
+      '  <span style="font-size:11px;opacity:.8;">YehMeraIndia style: hook + caption + hashtags</span>',
       '</div>',
       '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;">',
       '  <input data-ymi-topic placeholder="Post topic (required)" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
@@ -99,11 +346,49 @@ RUN set -eux; \
       '  <input data-ymi-audience placeholder="Audience" value="Indian young adults" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
       '  <input data-ymi-language placeholder="Language" value="Hinglish" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
       '</div>',
+      '<div style="display:grid;grid-template-columns:2fr 1fr 120px;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-tags placeholder="#tag1 #tag2 (editable)" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <label style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;font-size:12px;">',
+      '    <input type="checkbox" data-ymi-image-check checked /> Generate image',
+      '  </label>',
+      '  <input type="number" min="1" max="5" value="1" data-ymi-image-count style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" title="Image count" />',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-brand placeholder="Brand name" value="JK Mall" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-tagline placeholder="Tagline" value="Where Spaces Become Yours." style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:1fr 160px;gap:8px;margin-bottom:8px;">',
+      '  <select data-ymi-variation-strategy style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;">',
+      '    <option value="luxury_cinematic">Variation Strategy: Luxury Cinematic</option>',
+      '    <option value="product_showcase">Variation Strategy: Product Showcase</option>',
+      '    <option value="room_story">Variation Strategy: Room Story</option>',
+      '    <option value="festive_campaign">Variation Strategy: Festive Campaign</option>',
+      '    <option value="minimal_editorial">Variation Strategy: Minimal Editorial</option>',
+      '  </select>',
+      '  <button type="button" data-ymi-variation-apply style="background:#334155;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;">Apply Preset</button>',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-image-moods placeholder="Moods (comma/new line)" value="luxury, cozy, modern, festive, dramatic" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-image-objects placeholder="Objects to focus (comma/new line)" value="hero sofa, dining set, console table, lounge chair, premium TV wall" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '</div>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">',
+      '  <input data-ymi-image-style placeholder="Visual style" value="ultra-premium commercial photography" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '  <input data-ymi-image-lighting placeholder="Lighting" value="cinematic warm ambient lighting" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;" />',
+      '</div>',
+      '<div style="margin-bottom:8px;">',
+      '  <textarea data-ymi-image-template rows="6" style="width:100%;padding:8px;border-radius:8px;border:1px solid #3d3d46;background:#111217;color:#f3f4f6;resize:vertical;" placeholder="Custom AI image prompt template"></textarea>',
+      '</div>',
       '<div style="display:flex;align-items:center;gap:8px;">',
       '  <button type="button" data-ymi-generate style="background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;">Generate AI Post</button>',
       '  <button type="button" data-ymi-paste style="background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Paste to Composer</button>',
+      '  <button type="button" data-ymi-copy style="background:#0ea5e9;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Copy Text</button>',
+      '  <button type="button" data-ymi-draft style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Save Draft</button>',
+      '  <button type="button" data-ymi-publish style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Publish Now</button>',
+      '  <button type="button" data-ymi-image-icon style="background:#f59e0b;color:#111827;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Use AI Image Icon</button>',
+      '  <button type="button" data-ymi-image-icon-next style="background:#fbbf24;color:#111827;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;display:none;">Next AI Image</button>',
       '  <span data-ymi-status style="font-size:12px;opacity:.85"></span>',
-      '</div>'
+      '</div>',
+      '<div data-ymi-preview style="margin-top:10px;font-size:12px;"></div>'
     ].join('');
 
     const holder = target.closest('div') || target.parentElement;
@@ -118,11 +403,51 @@ RUN set -eux; \
     const goal = wrap.querySelector('[data-ymi-goal]');
     const audience = wrap.querySelector('[data-ymi-audience]');
     const language = wrap.querySelector('[data-ymi-language]');
+    const tagsInput = wrap.querySelector('[data-ymi-tags]');
+    const imageCheck = wrap.querySelector('[data-ymi-image-check]');
+    const imageCountInput = wrap.querySelector('[data-ymi-image-count]');
+    const brandInput = wrap.querySelector('[data-ymi-brand]');
+    const taglineInput = wrap.querySelector('[data-ymi-tagline]');
+    const variationStrategy = wrap.querySelector('[data-ymi-variation-strategy]');
+    const variationApply = wrap.querySelector('[data-ymi-variation-apply]');
+    const imageMoodsInput = wrap.querySelector('[data-ymi-image-moods]');
+    const imageObjectsInput = wrap.querySelector('[data-ymi-image-objects]');
+    const imageStyleInput = wrap.querySelector('[data-ymi-image-style]');
+    const imageLightingInput = wrap.querySelector('[data-ymi-image-lighting]');
+    const imageTemplateInput = wrap.querySelector('[data-ymi-image-template]');
     const generate = wrap.querySelector('[data-ymi-generate]');
     const paste = wrap.querySelector('[data-ymi-paste]');
+    const copy = wrap.querySelector('[data-ymi-copy]');
+    const draft = wrap.querySelector('[data-ymi-draft]');
+    const publish = wrap.querySelector('[data-ymi-publish]');
+    const imageIcon = wrap.querySelector('[data-ymi-image-icon]');
+    const imageIconNext = wrap.querySelector('[data-ymi-image-icon-next]');
     const status = wrap.querySelector('[data-ymi-status]');
+    const previewEl = wrap.querySelector('[data-ymi-preview]');
 
-    let generatedText = '';
+    if (imageTemplateInput && !String(imageTemplateInput.value || '').trim()) {
+      imageTemplateInput.value = DEFAULT_LUXURY_IMAGE_TEMPLATE;
+    }
+
+    function applyStrategyPreset() {
+      const key = String(variationStrategy && variationStrategy.value || 'luxury_cinematic').trim();
+      const preset = STRATEGY_PRESETS[key] || STRATEGY_PRESETS.luxury_cinematic;
+      if (!preset) return;
+      if (imageMoodsInput) imageMoodsInput.value = preset.moods;
+      if (imageObjectsInput) imageObjectsInput.value = preset.objects;
+      if (imageStyleInput) imageStyleInput.value = preset.style;
+      if (imageLightingInput) imageLightingInput.value = preset.lighting;
+      if (status) status.textContent = 'Applied variation strategy: ' + preset.label + '.';
+    }
+
+    applyStrategyPreset();
+    if (variationApply) variationApply.addEventListener('click', applyStrategyPreset);
+    if (variationStrategy) variationStrategy.addEventListener('change', applyStrategyPreset);
+
+    let generated = null;
+    let iconPromptQueue = [];
+    let iconPromptIndex = 0;
+    renderGeneratedPreview(previewEl, generated);
 
     generate.addEventListener('click', async function () {
       const topicValue = String(topic.value || '').trim();
@@ -133,9 +458,22 @@ RUN set -eux; \
 
       generate.disabled = true;
       paste.style.display = 'none';
+      copy.style.display = 'none';
+      draft.style.display = 'none';
+      publish.style.display = 'none';
+      imageIcon.style.display = 'none';
+      imageIconNext.style.display = 'none';
       status.textContent = 'Generating...';
 
       try {
+        const brandName = String(brandInput ? brandInput.value : '').trim() || 'JK Mall';
+        const tagline = String(taglineInput ? taglineInput.value : '').trim() || 'Where Spaces Become Yours.';
+        const imageMoods = String(imageMoodsInput ? imageMoodsInput.value : '').trim();
+        const imageObjects = String(imageObjectsInput ? imageObjectsInput.value : '').trim();
+        const imageStyle = String(imageStyleInput ? imageStyleInput.value : '').trim();
+        const imageLighting = String(imageLightingInput ? imageLightingInput.value : '').trim();
+        const imagePromptTemplate = String(imageTemplateInput ? imageTemplateInput.value : '').trim();
+
         const response = await fetch('http://localhost:3001/api/ai/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -145,27 +483,59 @@ RUN set -eux; \
             tone: String(tone.value || '').trim() || 'bold and energetic',
             goal: String(goal.value || '').trim() || 'engagement and shares',
             audience: String(audience.value || '').trim() || 'Indian young adults',
-            language: String(language.value || '').trim() || 'Hinglish'
+            language: String(language.value || '').trim() || 'Hinglish',
+            generateImage: !!(imageCheck && imageCheck.checked),
+            imageCount: clampImageCount(imageCountInput ? imageCountInput.value : 1),
+            brandName: brandName,
+            tagline: tagline,
+            imageMoods: imageMoods,
+            imageObjects: imageObjects,
+            imageStyle: imageStyle,
+            imageLighting: imageLighting,
+            imagePromptTemplate: imagePromptTemplate
           })
         });
 
         const data = await response.json().catch(function () { return {}; });
         if (!response.ok) throw new Error(data.error || 'AI request failed');
 
-        const hashtags = Array.isArray(data.hashtags) ? data.hashtags.join(' ') : '';
-        const imagePrompt = Array.isArray(data.imagePrompts) && data.imagePrompts.length ? data.imagePrompts[0] : '';
-        generatedText = [
-          data.hook || '',
-          data.caption || '',
-          hashtags,
-          data.cta || '',
-          imagePrompt ? ('\nImage idea: ' + imagePrompt) : ''
-        ].filter(Boolean).join('\n\n').trim();
+        const tagsText = Array.isArray(data.hashtags) ? data.hashtags.join(' ') : '';
+        generated = {
+          hook: data.hook || '',
+          caption: data.caption || '',
+          cta: data.cta || '',
+          imagePrompts: Array.isArray(data.imagePrompts) ? data.imagePrompts : [],
+          imagePromptUsed: data.imagePromptUsed || '',
+          generatedImage: data.generatedImage || '',
+          generatedImages: Array.isArray(data.generatedImages) ? data.generatedImages : (data.generatedImage ? [data.generatedImage] : []),
+          tagsText: tagsText,
+          freeMode: !!data.freeMode,
+          freeModeReason: data.freeModeReason || '',
+          imageQuotaExceeded: !!data.imageQuotaExceeded
+        };
 
-        if (!generatedText) throw new Error('AI returned empty text');
-        status.textContent = 'Generated. Click Paste to Composer.';
+        if (!generated.caption && !generated.hook) throw new Error('AI returned empty content');
+        if (tagsInput) tagsInput.value = generated.tagsText;
+        renderGeneratedPreview(previewEl, generated);
+        if (generated.freeMode) {
+          status.textContent = (generated.freeModeReason || 'Free fallback mode active.') + ' Post text generated locally.';
+        } else if (generated.imageQuotaExceeded && !(generated.generatedImages && generated.generatedImages.length)) {
+          status.textContent = 'Image quota exhausted. Post text generated; use prompts manually in AI Image tool.';
+        } else {
+          status.textContent = generated.generatedImages && generated.generatedImages.length
+            ? ('Generated with ' + generated.generatedImages.length + ' image preview(s). Paste, draft, publish, or send prompts to AI icon.')
+            : 'Generated. Image unavailable; check prompt preview below.';
+        }
         paste.style.display = 'inline-block';
+        copy.style.display = 'inline-block';
+        draft.style.display = 'inline-block';
+        publish.style.display = 'inline-block';
+        imageIcon.style.display = 'inline-block';
+        iconPromptQueue = [];
+        iconPromptIndex = 0;
       } catch (err) {
+        generated = null;
+        renderGeneratedPreview(previewEl, generated);
         status.textContent = (err && err.message) ? err.message : 'Generation failed';
       } finally {
         generate.disabled = false;
@@ -173,10 +543,103 @@ RUN set -eux; \
     });
 
     paste.addEventListener('click', function () {
-      if (!generatedText) return;
-      setNativeValue(target, generatedText);
+      if (!generated) return;
+      const postText = buildPostText(generated, tagsInput ? tagsInput.value : '');
+      setNativeValue(target, postText);
       target.focus();
       status.textContent = 'Inserted into composer.';
+    });
+
+    copy.addEventListener('click', async function () {
+      if (!generated) return;
+      const postText = buildPostText(generated, tagsInput ? tagsInput.value : '');
+      try {
+        await navigator.clipboard.writeText(postText);
+        status.textContent = 'Copied post text. You can customize more tags before paste.';
+      } catch (_) {
+        status.textContent = 'Copy failed. Use Paste to Composer.';
+      }
+    });
+
+    draft.addEventListener('click', function () {
+      if (!generated) return;
+      const postText = buildPostText(generated, tagsInput ? tagsInput.value : '');
+      setNativeValue(target, postText);
+      target.focus();
+
+      const saveDraftBtn = findButtonByText('save as draft');
+      if (!saveDraftBtn) {
+        status.textContent = 'Save draft button not found. Click Save as draft manually.';
+        return;
+      }
+      saveDraftBtn.click();
+      status.textContent = 'Draft save triggered. Check Calendar entries for the saved draft.';
+    });
+
+    publish.addEventListener('click', function () {
+      if (!generated) return;
+      const postText = buildPostText(generated, tagsInput ? tagsInput.value : '');
+      setNativeValue(target, postText);
+      target.focus();
+
+      const publishBtn = findButtonByText('publish now') || findButtonByText('post now') || findButtonByText('add to calendar');
+      if (!publishBtn) {
+        status.textContent = 'Publish button not found. Use Save as draft/Add to Calendar manually.';
+        return;
+      }
+      publishBtn.click();
+      status.textContent = 'Publish action triggered.';
+    });
+
+    imageIcon.addEventListener('click', function () {
+      const brandName = String(brandInput ? brandInput.value : '').trim() || 'JK Mall';
+      const tagline = String(taglineInput ? taglineInput.value : '').trim() || 'Where Spaces Become Yours.';
+      const imageMoods = String(imageMoodsInput ? imageMoodsInput.value : '').trim();
+      const imageObjects = String(imageObjectsInput ? imageObjectsInput.value : '').trim();
+      const imageStyle = String(imageStyleInput ? imageStyleInput.value : '').trim();
+      const imageLighting = String(imageLightingInput ? imageLightingInput.value : '').trim();
+      const template = String(imageTemplateInput ? imageTemplateInput.value : '').trim() || DEFAULT_LUXURY_IMAGE_TEMPLATE;
+
+      const promptFromGenerated = generated && generated.imagePromptUsed ? String(generated.imagePromptUsed) : '';
+      const composedPrompt = promptFromGenerated || fillTemplate(template, {
+        brand: brandName,
+        tagline: tagline,
+        topic: String(topic.value || '').trim(),
+        tone: String(tone.value || '').trim(),
+        goal: String(goal.value || '').trim(),
+        audience: String(audience.value || '').trim(),
+        language: String(language.value || '').trim(),
+        objects: imageObjects,
+        moods: imageMoods,
+        style: imageStyle,
+        lighting: imageLighting,
+      });
+
+      iconPromptQueue = buildImagePromptVariants(composedPrompt, imageCountInput ? imageCountInput.value : 1, {
+        moods: imageMoods,
+        objects: imageObjects,
+        style: imageStyle,
+        lighting: imageLighting,
+      });
+      iconPromptIndex = 0;
+      openAiImageToolAndFillPrompt(target, iconPromptQueue[iconPromptIndex], status);
+      iconPromptIndex += 1;
+      imageIconNext.style.display = iconPromptIndex < iconPromptQueue.length ? 'inline-block' : 'none';
+      if (iconPromptQueue.length > 1) {
+        status.textContent = 'AI Image icon prompt 1/' + iconPromptQueue.length + ' sent. Click Next AI Image for more variations.';
+      }
+    });
+
+    imageIconNext.addEventListener('click', function () {
+      if (!iconPromptQueue.length || iconPromptIndex >= iconPromptQueue.length) {
+        status.textContent = 'No pending image variations. Click Use AI Image Icon again.';
+        imageIconNext.style.display = 'none';
+        return;
+      }
+      openAiImageToolAndFillPrompt(target, iconPromptQueue[iconPromptIndex], status);
+      iconPromptIndex += 1;
+      imageIconNext.style.display = iconPromptIndex < iconPromptQueue.length ? 'inline-block' : 'none';
+      status.textContent = 'AI Image icon prompt ' + iconPromptIndex + '/' + iconPromptQueue.length + ' sent.';
     });
   }
 
