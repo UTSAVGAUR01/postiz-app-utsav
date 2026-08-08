@@ -1,4 +1,5 @@
 const express = require('express');
+const { readAll } = require('../db');
 
 const router = express.Router();
 
@@ -46,6 +47,41 @@ function sanitizeOutput(result) {
   };
 }
 
+function normalizeRows(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row) => row && row.provider)
+    .map((row) => ({
+      provider: String(row.provider).toLowerCase(),
+      label: String(row.label || '').trim(),
+      client_id: String(row.client_id || ''),
+      client_secret: String(row.client_secret || ''),
+      is_active: !!row.is_active,
+      updated_at: row.updated_at || '',
+    }));
+}
+
+function chooseActive(rows, provider) {
+  const candidates = rows.filter((row) => row.provider === provider);
+  if (candidates.length === 0) return null;
+  const active = candidates.find((row) => row.is_active);
+  if (active) return active;
+  return candidates
+    .slice()
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
+}
+
+function resolveApiKey(body) {
+  const directKey = String(body?.apiKey || '').trim();
+  if (directKey) return directKey;
+
+  const rows = normalizeRows(readAll());
+  const active = chooseActive(rows, 'openai');
+  if (active?.client_id) return String(active.client_id).trim();
+
+  return String(process.env.AI_API_KEY || '').trim();
+}
+
 router.post('/generate', async (req, res) => {
   try {
     const {
@@ -66,10 +102,10 @@ router.post('/generate', async (req, res) => {
       return res.status(400).json({ error: 'Topic is required' });
     }
 
-    const token = (apiKey || process.env.AI_API_KEY || '').trim();
+    const token = resolveApiKey(req.body || {});
     if (!token) {
       return res.status(400).json({
-        error: 'AI API key missing. Provide apiKey in the form or set AI_API_KEY in environment.',
+        error: 'AI API key missing. Save an active OpenAI credential in Admin UI or provide apiKey in the form.',
       });
     }
 

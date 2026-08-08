@@ -20,20 +20,53 @@ RUN set -eux; \
   window.__ymiPostizAiLoaded = true;
 
   function setNativeValue(el, value) {
-    const proto = Object.getPrototypeOf(el);
-    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-    if (desc && desc.set) desc.set.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!el) return;
+
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      const proto = Object.getPrototypeOf(el);
+      const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.set) desc.set.call(el, value);
+      else el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+
+    if (el.isContentEditable) {
+      el.focus();
+      try {
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, value);
+      } catch (_) {
+        el.textContent = value;
+      }
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
 
   function findComposer() {
-    const areas = Array.from(document.querySelectorAll('textarea'));
-    return areas.find((t) => {
+    const textareas = Array.from(document.querySelectorAll('textarea'));
+    const textarea = textareas.find((t) => {
       const ph = String(t.getAttribute('placeholder') || '').toLowerCase();
       return ph.includes('write something') || ph.includes('write');
     });
+    if (textarea) return textarea;
+
+    const richEditors = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+    const richEditor = richEditors.find((el) => {
+      const aria = String(el.getAttribute('aria-label') || '').toLowerCase();
+      const cls = String(el.className || '').toLowerCase();
+      const dataPh = String(el.getAttribute('data-placeholder') || '').toLowerCase();
+      const ph = String(el.getAttribute('placeholder') || '').toLowerCase();
+      return (
+        aria.includes('write') ||
+        dataPh.includes('write') ||
+        ph.includes('write') ||
+        cls.includes('prosemirror')
+      );
+    });
+    return richEditor || null;
   }
 
   function makePanel(target) {
