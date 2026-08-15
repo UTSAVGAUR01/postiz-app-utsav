@@ -26,6 +26,7 @@ export default function PostsPage() {
   const [brandVoice, setBrandVoice] = useState('')
   const [keyPoints, setKeyPoints] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const [aiProvider, setAiProvider] = useState('gemini')
 
   async function copy(text) {
     try {
@@ -59,6 +60,7 @@ export default function PostsPage() {
         brandVoice,
         keyPoints,
         apiKey,
+        provider: aiProvider,
       })
       setGenerated(output)
     } catch (e) {
@@ -150,12 +152,22 @@ export default function PostsPage() {
           </div>
         </div>
 
+        <div className="grid-2">
         <div className="form-group">
-          <label>AI API Key (optional if server has AI_API_KEY)</label>
+          <label>AI Provider</label>
+          <select className="form-control" value={aiProvider} onChange={e => setAiProvider(e.target.value)}>
+            <option value="gemini">Google Gemini (quota limited)</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label>AI API Key (optional if saved in Credentials)</label>
           <input type="password" className="form-control" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Paste key for this session" />
+        </div>
         </div>
 
         {genError && <div className="alert alert-error">{genError}</div>}
+        {generated?.mediaGenerationNotice && <div className="alert alert-info">{generated.mediaGenerationNotice}</div>}
         {copyStatus && <div className="alert alert-success">{copyStatus}</div>}
 
         {generated && (

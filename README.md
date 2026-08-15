@@ -154,6 +154,18 @@ docker compose up -d --no-deps --force-recreate postiz
 OAuth client secrets and social-platform secrets belong in the Postiz backend
 environment, never in browser-side frontend code.
 
+## AI post generation
+
+The custom Admin **Posts → AI Post Studio** supports Google Gemini and OpenAI.
+Gemini generates text, captions, hashtags, and media prompts subject to Google's
+rate and daily quotas. It does not offer unlimited use and this setup does not
+call Gemini's separately billed image-generation API. Use the generated media
+prompt with an approved image provider when you need an image.
+
+Add a newly created, restricted Gemini key in **Admin → Credentials → Google
+Gemini**, then select Gemini in AI Post Studio. Never commit a key or paste one
+into tickets, chat, or source code.
+
 ## Provider credentials and admin UI
 
 Open the custom admin UI at <http://localhost:3001>, sign in with your Postiz

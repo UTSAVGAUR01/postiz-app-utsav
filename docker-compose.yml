@@ -111,6 +111,8 @@ services:
       TUMBLR_CLIENT_ID: ${TUMBLR_CLIENT_ID:-}
       TUMBLR_CLIENT_SECRET: ${TUMBLR_CLIENT_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
     volumes:
       - postiz_uploads:/uploads
       - postiz_config:/config
@@ -140,6 +142,8 @@ services:
       HOST_ENV_FILE: /app/.env.stack
       DATA_DIR: /app/data
       AI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env.stack

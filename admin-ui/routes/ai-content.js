@@ -7,6 +7,8 @@ const DEFAULT_ENDPOINT = process.env.AI_API_ENDPOINT || 'https://api.openai.com/
 const DEFAULT_MODEL = process.env.AI_MODEL || 'gpt-4o-mini';
 const DEFAULT_IMAGE_ENDPOINT = process.env.AI_IMAGE_ENDPOINT || 'https://api.openai.com/v1/images/generations';
 const DEFAULT_IMAGE_MODEL = process.env.AI_IMAGE_MODEL || 'gpt-image-1';
+const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_API_BASE = process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta';
 
 function normalizeArray(value) {
   if (Array.isArray(value)) return value.map(String).map(v => v.trim()).filter(Boolean);
@@ -122,15 +124,35 @@ function chooseActive(rows, provider) {
     .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
 }
 
-function resolveApiKey(body) {
+function normalizeProvider(value) {
+  return String(value || 'openai').trim().toLowerCase() === 'gemini' ? 'gemini' : 'openai';
+}
+
+function resolveApiKey(body, provider) {
   const directKey = String(body?.apiKey || '').trim();
   if (directKey) return directKey;
 
   const rows = normalizeRows(readAll());
-  const active = chooseActive(rows, 'openai');
+  const active = chooseActive(rows, provider);
   if (active?.client_id) return String(active.client_id).trim();
 
-  return String(process.env.AI_API_KEY || '').trim();
+  return String(provider === 'gemini' ? process.env.GEMINI_API_KEY : process.env.AI_API_KEY).trim();
+}
+
+async function generateWithGemini({ token, model, prompt }) {
+  const response = await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model || DEFAULT_GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: 'You are a high-performing social media strategist. Create trendy, tasteful, high-engagement social copy for Indian audiences. Return ONLY valid JSON with keys hook, caption, hashtags, imagePrompts, cta, bestPostTime, trendAngle. Keep hashtags relevant and not spammy.' }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.85, responseMimeType: 'application/json' },
+    }),
+  });
+  const raw = await response.text();
+  const payload = response.ok ? JSON.parse(raw) : null;
+  const content = (payload?.candidates?.[0]?.content?.parts || []).map((part) => part?.text || '').join('');
+  return { response, raw, content };
 }
 
 function fillTemplate(template, values) {
@@ -284,16 +306,18 @@ router.post('/generate', async (req, res) => {
       imageLighting = 'cinematic warm ambient lighting',
       model,
       apiKey,
+      provider = 'openai',
     } = req.body || {};
 
     if (!topic || !String(topic).trim()) {
       return res.status(400).json({ error: 'Topic is required' });
     }
 
-    const token = resolveApiKey(req.body || {});
+    const selectedProvider = normalizeProvider(provider);
+    const token = resolveApiKey(req.body || {}, selectedProvider);
     if (!token) {
       return res.status(400).json({
-        error: 'AI API key missing. Save an active OpenAI credential in Admin UI or provide apiKey in the form.',
+        error: `AI API key missing. Save an active ${selectedProvider === 'gemini' ? 'Gemini' : 'OpenAI'} credential in Admin UI or provide a session key in the form.`,
       });
     }
 
@@ -318,7 +342,11 @@ router.post('/generate', async (req, res) => {
     let freeMode = false;
     let freeModeReason = '';
 
-    const response = await fetch(DEFAULT_ENDPOINT, {
+    const schemaPrompt = `${prompt}\n\nOutput schema:\n{\n  "hook": "string",\n  "caption": "string",\n  "hashtags": ["#one", "#two"],\n  "imagePrompts": ["prompt 1", "prompt 2"],\n  "cta": "string",\n  "bestPostTime": "string",\n  "trendAngle": "string"\n}`;
+    const gemini = selectedProvider === 'gemini'
+      ? await generateWithGemini({ token, model, prompt: schemaPrompt })
+      : null;
+    const response = gemini?.response || await fetch(DEFAULT_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -335,24 +363,24 @@ router.post('/generate', async (req, res) => {
           },
           {
             role: 'user',
-            content: `${prompt}\n\nOutput schema:\n{\n  "hook": "string",\n  "caption": "string",\n  "hashtags": ["#one", "#two"],\n  "imagePrompts": ["prompt 1", "prompt 2"],\n  "cta": "string",\n  "bestPostTime": "string",\n  "trendAngle": "string"\n}`,
+            content: schemaPrompt,
           },
         ],
       }),
     });
 
-    const raw = await response.text();
+    const raw = gemini?.raw || await response.text();
     if (!response.ok) {
       if (isQuotaError(response.status, raw)) {
         output = buildFallbackOutput({ topic, platform, tone, goal, audience, language });
         freeMode = true;
-        freeModeReason = 'OpenAI quota exhausted. Using built-in free fallback output.';
+        freeModeReason = `${selectedProvider === 'gemini' ? 'Gemini' : 'OpenAI'} quota exhausted. Using built-in free fallback output.`;
       } else {
         return res.status(response.status).json({ error: `AI generation failed: ${raw.slice(0, 500)}` });
       }
     } else {
-      const payload = JSON.parse(raw);
-      const content = payload?.choices?.[0]?.message?.content;
+      const payload = gemini ? null : JSON.parse(raw);
+      const content = gemini?.content || payload?.choices?.[0]?.message?.content;
       const parsed = parseModelJson(content);
       if (!parsed) {
         output = buildFallbackOutput({ topic, platform, tone, goal, audience, language });
@@ -390,7 +418,8 @@ router.post('/generate', async (req, res) => {
 
     const generatedImages = [];
     let imageQuotaExceeded = false;
-    if (generateImage && imagePromptUsed) {
+    let mediaGenerationNotice = '';
+    if (generateImage && selectedProvider === 'openai' && imagePromptUsed) {
       const count = clampImageCount(imageCount);
       const directives = {
         moods: normalizeArray(imageMoods),
@@ -411,6 +440,8 @@ router.post('/generate', async (req, res) => {
         }
         if (imageResult?.url) generatedImages.push(imageResult.url);
       }
+    } else if (generateImage && selectedProvider === 'gemini') {
+      mediaGenerationNotice = 'Gemini is configured for captions and media prompts only. Image API generation is disabled because it has separate paid quota; use the generated prompt in an approved image provider.';
     }
 
     return res.json({
@@ -421,6 +452,8 @@ router.post('/generate', async (req, res) => {
       imagePromptUsed,
       generatedImage: generatedImages[0] || null,
       generatedImages,
+      provider: selectedProvider,
+      mediaGenerationNotice,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'AI generation failed' });

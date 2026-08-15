@@ -18,6 +18,7 @@ const ENV_MAP = {
   pinterest: { id: 'PINTEREST_CLIENT_ID', secret: 'PINTEREST_CLIENT_SECRET' },
   tumblr:    { id: 'TUMBLR_CLIENT_ID',    secret: 'TUMBLR_CLIENT_SECRET' },
   openai:    { token: 'OPENAI_API_KEY' },
+  gemini:    { token: 'GEMINI_API_KEY' },
 };
 
 function normalizeRows(raw) {
