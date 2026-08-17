@@ -1,0 +1,196 @@
+name: postiz-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: postiz-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postiz}
+      POSTGRES_USER: ${POSTGRES_USER:-postiz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postiz} -d ${POSTGRES_DB:-postiz}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: postiz-test-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    container_name: postiz-test-temporal
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postiz}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/docker.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z $(hostname -i) 7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    container_name: postiz-test-temporal-ui
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "${TEMPORAL_UI_PORT:-8082}:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  postiz:
+    image: ${POSTIZ_IMAGE:-postiz-facebook-oauth-admin-ui-v25:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.postiz-facebook-oauth-admin-ui-v25
+      args:
+        POSTIZ_BASE_IMAGE: ${POSTIZ_BASE_IMAGE:-ghcr.io/gitroomhq/postiz-app:latest}
+    container_name: postiz-test-app
+    restart: unless-stopped
+    ports:
+      - "${POSTIZ_PORT:-4007}:5000"
+    environment:
+      MAIN_URL: ${MAIN_URL:-http://localhost:4007}
+      # Local files are saved with FRONTEND_URL/uploads/... . Keep MAIN_URL on
+      # localhost for normal use, or set FRONTEND_URL to an HTTPS tunnel URL so
+      # Facebook and Instagram can fetch files still stored on this machine.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4007}
+      NEXT_PUBLIC_BACKEND_URL: ${MAIN_URL:-http://localhost:4007}/api
+      BACKEND_INTERNAL_URL: http://postiz:5000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postiz}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postiz}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-postiz}
+      IS_GENERAL: "true"
+      # "local" is suitable for previews only. Facebook and Instagram can publish
+      # generated media only when its URL is publicly reachable over HTTPS.
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      UPLOAD_DIRECTORY: ${UPLOAD_DIRECTORY:-/uploads}
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: ${NEXT_PUBLIC_UPLOAD_DIRECTORY:-/uploads}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_ACCESS_KEY: ${CLOUDFLARE_ACCESS_KEY:-}
+      CLOUDFLARE_SECRET_ACCESS_KEY: ${CLOUDFLARE_SECRET_ACCESS_KEY:-}
+      CLOUDFLARE_REGION: ${CLOUDFLARE_REGION:-auto}
+      CLOUDFLARE_BUCKETNAME: ${CLOUDFLARE_BUCKETNAME:-}
+      CLOUDFLARE_BUCKET_URL: ${CLOUDFLARE_BUCKET_URL:-}
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
+      NOT_SECURED: "true"
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      X_CLIENT_ID: ${X_CLIENT_ID:-}
+      X_CLIENT_SECRET: ${X_CLIENT_SECRET:-}
+      TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      PINTEREST_CLIENT_ID: ${PINTEREST_CLIENT_ID:-}
+      PINTEREST_CLIENT_SECRET: ${PINTEREST_CLIENT_SECRET:-}
+      TUMBLR_CLIENT_ID: ${TUMBLR_CLIENT_ID:-}
+      TUMBLR_CLIENT_SECRET: ${TUMBLR_CLIENT_SECRET:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-lite-image}
+      GEMINI_PAID_IMAGE_MODE: ${GEMINI_PAID_IMAGE_MODE:-false}
+      GEMINI_IMAGE_MAX_COUNT: ${GEMINI_IMAGE_MAX_COUNT:-4}
+    volumes:
+      - postiz_uploads:/uploads
+      - postiz_config:/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:5000/auth'), fetch('http://127.0.0.1:5000/api/user/self')]).then(([auth, api]) => { const okAuth = auth.ok; const okApi = api.status !== 502 && api.status < 500; process.exit(okAuth && okApi ? 0 : 1); }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  admin-ui:
+    build: ./admin-ui
+    container_name: postiz-admin-ui
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_UI_PORT:-3001}:3001"
+    environment:
+      POSTIZ_INTERNAL_URL: http://postiz:5000
+      POSTIZ_CONTAINER_NAME: postiz-test-app
+      HOST_ENV_FILE: /app/.env.stack
+      DATA_DIR: /app/data
+      AI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-lite-image}
+      GEMINI_PAID_IMAGE_MODE: ${GEMINI_PAID_IMAGE_MODE:-false}
+      GEMINI_IMAGE_MAX_COUNT: ${GEMINI_IMAGE_MAX_COUNT:-4}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env.stack
+      - admin_data:/app/data
+    depends_on:
+      postiz:
+        condition: service_healthy
+
+  # Optional local-media tunnel. Start only with:
+  # docker compose --profile tunnel up -d ngrok
+  # It exposes the Postiz container without moving the /uploads volume to a
+  # cloud provider. Set FRONTEND_URL to the resulting HTTPS URL before
+  # publishing a media post.
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: postiz-ngrok
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    command: ["http", "postiz:5000"]
+    ports:
+      - "127.0.0.1:${NGROK_INSPECT_PORT:-4040}:4040"
+    depends_on:
+      postiz:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  postiz_uploads:
+  postiz_config:
+  admin_data:
